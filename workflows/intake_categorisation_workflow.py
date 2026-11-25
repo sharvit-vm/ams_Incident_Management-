@@ -33,6 +33,7 @@ from storage.rca_report_store import save_rca_report
 from l2_rca.agents.l2_rca_agent import L2RCAAgent
 from l2_rca.models.request import IncidentRequest as L2IncidentRequest
 from db_fix.models.request import RCARequest as DBFixRequest
+from infrastructure_fix.models import InfrastructureRequest
 from governance.guardrails import validate_guardrails
 from workflows.agent_registry import get_fix_agent
 
@@ -698,7 +699,7 @@ def build_intake_categorisation_workflow():
                 session_id=state.get("workflow_session_id") or event.id,
                 metadata={"agent": "l2_rca"},
             ) as generation:
-                result = agent.analyze(request)
+                result = agent.analyze(request, dispatch_downstream=False)
             result_dict = result.model_dump() if hasattr(result, "model_dump") else dict(result)
             update_generation_usage(generation, result_dict.get("token_usage_details"))
             result_dict["status"] = "completed"
@@ -735,7 +736,17 @@ def build_intake_categorisation_workflow():
                 rca_report.model_dump() if hasattr(rca_report, "model_dump") else {}
             )
             try:
-                fix_request = DBFixRequest(**rca_dict)
+                if problem_domain.strip().lower() == "infrastructure":
+                    event = state["error_event"]
+                    fix_request = InfrastructureRequest(
+                        diagnosis=rca_dict,
+                        incident_id=event.incident_id or event.external_id or event.id,
+                        description=_compact_text(event.description, event.raw_description, event.message),
+                        target_hint=event.configuration_item,
+                        environment=event.impacted_environment or event.environment,
+                    )
+                else:
+                    fix_request = DBFixRequest(**rca_dict)
                 result_dict = fix_agent(fix_request)
                 if hasattr(result_dict, "model_dump"):
                     result_dict = result_dict.model_dump()

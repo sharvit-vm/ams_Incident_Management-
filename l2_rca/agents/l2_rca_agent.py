@@ -28,7 +28,7 @@ class L2RCAAgent:
         self.agent_executor = AgentExecutor()
 
     @track_usage(field="token_usage_details")
-    def analyze(self, incident: IncidentRequest) -> APIResponse:
+    def analyze(self, incident: IncidentRequest, *, dispatch_downstream: bool = True) -> APIResponse:
 
         trace_id = get_trace_id() or new_trace_id()
         correlation_id = trace_id
@@ -145,21 +145,27 @@ class L2RCAAgent:
              decision=diagnosis.recommended_agent, confidence=diagnosis.confidence)
 
         # ── Stage 6: Execute downstream agent ────────────────────────────────
-        _xlog.step(6, "DOWNSTREAM EXECUTION", f"Delegate to {report.recommended_agent} for remediation")
+        _xlog.step(6, "DOWNSTREAM EXECUTION", f"Route {report.recommended_agent} for remediation")
         _xlog.substep("CONNECTING", f"Target agent     : {report.recommended_agent}")
-        _xlog.substep("EXECUTING", "Sending HTTP POST to downstream agent")
+        _xlog.substep("EXECUTING", "Dispatching downstream agent" if dispatch_downstream else "Deferring dispatch to workflow")
 
         log("Preparing request for downstream agent",
             stage="PREPARING_DOWNSTREAM_REQUEST",
             extra={"target_agent": report.recommended_agent}, **ids)
 
         t0 = time.perf_counter()
-        execution = self.agent_executor.execute(report)
+        if dispatch_downstream:
+            execution = self.agent_executor.execute(report)
+        else:
+            execution = {
+                "status": "DEFERRED_TO_WORKFLOW",
+                "recommended_agent": report.recommended_agent,
+            }
         execution_elapsed = (time.perf_counter() - t0) * 1000
 
-        _xlog.substep("COMPLETED", "Response received from downstream agent", execution_elapsed)
+        _xlog.substep("COMPLETED", "Downstream dispatch handled", execution_elapsed)
 
-        log("Response received from downstream agent",
+        log("Downstream dispatch handled",
             stage="RESPONSE_RECEIVED", elapsed_ms=execution_elapsed, **ids)
 
         # ── Stage 7: Build final response ─────────────────────────────────────

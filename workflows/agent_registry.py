@@ -19,8 +19,14 @@ def _db_fix_agent_factory() -> Callable:
     return agent.execute
 
 
+def _infrastructure_agent_factory() -> Callable:
+    from infrastructure_fix.agent import InfrastructureFixAgent
+    return InfrastructureFixAgent().execute
+
+
 AGENT_REGISTRY: dict[str, Callable[[], Callable]] = {
     "database": _db_fix_agent_factory,
+    "infrastructure": _infrastructure_agent_factory,
     # "configuration":  _config_fix_agent_factory,   ← future
     # "middleware":     _middleware_fix_agent_factory, ← future
 }

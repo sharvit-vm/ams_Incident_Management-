@@ -47,3 +47,11 @@ frontend/build/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local reference documents and exported README files
+/AMSDesciption.pdf
+/DescriptionAMS.pdf
+/ProjectInformation.pdf
+/ams_monitoring_aws_service_mapping.xlsx
+/README.html
+/README.png
