@@ -4,7 +4,11 @@
 
 Demonstrate a controlled performance incident: Locust generates load against a test application, New Relic alerts on sustained high CPU, and AMS investigates. When evidence supports a capacity shortage, an infrastructure agent proposes increasing the **designated test Auto Scaling group's desired capacity from 1 to 2**. After human approval, a bounded executor requests the increase and checks whether a new instance becomes healthy and performance improves.
 
-The extra instance must run the same application and receive traffic through an Application Load Balancer (ALB). Scaling is a proposed mitigation, not proof of a root-cause fix. A code defect, uneven traffic, a downstream bottleneck, or insufficient evidence may need another response. Nginx and rate limiting are optional future work, not prerequisites for this demo.
+The extra instance must run the same application and receive traffic through an Application Load Balancer (ALB). Scaling is a proposed mitigation, not proof of a root-cause fix. A code defect, uneven traffic, a downstream bottleneck, or insufficient evidence may need another response. Nginx is not required for the AWS demo.
+
+For a second, on-premises scenario without horizontal scaling, the agent verifies a designated test server and investigates its CPU, application process, service health, endpoint traffic and prepared rate-limiter state. If the evidence supports endpoint overload, it may propose enabling an existing endpoint-specific rate limit after human approval; the report must include the impact of rejected or delayed requests. The rate limiter and the separately approved executor must be provided by the chosen environment. A restart is not a default response to sustained request load.
+
+Both scenarios share the LangChain investigator, evidence models, human approval and verification concepts. Trusted configuration chooses the environment and scopes targets; incident text cannot choose a host, command, AWS account, or execution privilege. AWS scale-out and on-premises rate limiting require separate environment-specific adapters and executors. No action is performed by investigation.
 
 ```text
 Locust on separate machine -> ALB -> EC2 application in test Auto Scaling group
@@ -21,7 +25,8 @@ Locust on separate machine -> ALB -> EC2 application in test Auto Scaling group
 - [x] Local Postman test created ServiceNow incident `INC0010185`; repeating the alert did not create another ticket. The user confirmed ServiceNow forwarded it to AMS and L2 RCA completed.
 - [x] Connector committed and pushed: repository `vm-ec/ams-monitoring-connector`, branch `feature/newrelic-performance-integration`, commit `d55fbc1`.
 - [x] AMS Phase 1 routing implemented locally on `feature/infrastructure-remediation-routing`: LangGraph dispatches after L2, infrastructure reaches a non-executing placeholder, and simulated checks cover database and standalone L2 routing.
-- [ ] AMS Phase 1 changes and this plan are uncommitted. The pending human-review card for `INC0010185` has not been diagnosed; inspect its execution and approval ID when the running environment is available.
+- [x] AMS Phase 1 changes and the initial plan were committed and pushed as `3b589ad`. Subsequent Phase 2 work remains local and uncommitted.
+- [ ] The pending human-review card for `INC0010185` has not been diagnosed; inspect its execution and approval ID when the running environment is available.
 - [ ] A real New Relic alert, infrastructure investigation, approval, AWS execution, and verification have not yet been tested.
 
 ## How the test environment works
@@ -40,7 +45,7 @@ For this demonstration, keep any independent automatic scaling policies from com
 - [x] Move downstream dispatch for the LangGraph path out of L2 and into the graph, preserving standalone L2 behavior.
 - [x] Register an infrastructure placeholder and define a request carrying incident, diagnosis, environment, and an **unverified** target hint.
 - [x] Verify with simulated inputs that infrastructure reaches the placeholder and database dispatch occurs once.
-- [ ] Review and commit AMS changes on the feature branch. Real DB and AWS integrations were not part of these checks.
+- [x] Committed and pushed AMS Phase 1 on the feature branch. Real DB and AWS integrations were not part of these checks.
 
 ## Phase 2: Infrastructure investigation agent
 
@@ -50,6 +55,9 @@ For this demonstration, keep any independent automatic scaling policies from com
 
 - [ ] Define a verified target with AWS account ID, region, instance ID, Auto Scaling group ARN/name, target group ARN, environment, and verification source.
 - [ ] Define evidence records with value, source, observation window, timestamp, target, and success or error status.
+- [x] Start verified-target and evidence models and a read-only target resolver; test account, region, group, tag and membership checks with fake clients. The evidence model and target resolution still need to be expanded for full investigation.
+- [x] Connect a read-only LangChain investigation agent to the workflow with fail-closed target verification, AWS evidence collection and Langfuse trace spans. Investigation is disabled by default and must be configured for a designated test group.
+- [x] Add group state, target health, CPU, CPU-credit, traffic, target 5xx counts and p95 response-time evidence; implement a conservative candidate gate and test with fake clients and model output.
 - [ ] Carry a reliable target reference from the New Relic alert through ServiceNow and AMS. ServiceNow `cmdb_ci` is a reference field; test the actual Business Rule payload and use a trusted mapping or explicit field if necessary.
 - [ ] Stop for human investigation if the target is absent, ambiguous, outside the allowlist, wrongly tagged, stale, or cannot be verified. Incident text and LLM output are untrusted hints.
 
@@ -64,13 +72,13 @@ For this demonstration, keep any independent automatic scaling policies from com
 | `get_traffic_and_latency` | Configured New Relic or ALB/application metrics: request rate, latency, error rate and their time windows. Define and verify the actual metric names during setup. |
 | `get_process_and_service_summary` | Optional Systems Manager diagnostic document: bounded CPU/process and service-health summaries if needed to distinguish application load from another process. |
 
-- [ ] Implement structured, bounded read-only adapters with timeouts and explicit errors. A trusted decision layer enforces tool scope; no arbitrary LLM-generated AWS calls or shell commands.
-- [ ] Use a fixed read-only SSM document if host diagnostics are needed; restrict its parameters, output, runtime and targets. Do not grant arbitrary script execution.
+- [x] Implement structured, bounded read-only adapters with timeouts and explicit errors. A trusted decision layer enforces tool scope; no arbitrary LLM-generated AWS calls or shell commands.
+- [x] Implement an optional fixed-document SSM diagnostic adapter with a pinned document version, bounded runtime and sanitized output. The reviewed read-only AWS document and scoped IAM permissions still need to be provisioned and tested.
 - [ ] Correlate high CPU, request load, application/process data, latency and group/target health. Do not infer that scaling will help from CPU alone.
 - [ ] Propose scaling only when evidence supports capacity pressure, the group is eligible and capacity limits permit it; otherwise report uncertainty or request human investigation.
-- [ ] Test valid and ambiguous targets, wrong tags/account/region, missing or stale metrics, unrelated CPU consumers, unhealthy targets, full groups and AWS errors using fake clients.
+- [ ] Extend fake-client tests to cover unrelated CPU consumers, full groups and all other operational cases; verify real AWS dimensions, IAM and telemetry on the designated test environment.
 
-**Completion:** The agent produces a traceable, evidence-backed scale-out proposal or explains why it cannot do so. It does not change AWS resources.
+**Current state:** The agent produces a traceable investigation and a preliminary scale-out candidate flag, or explains why investigation cannot proceed. It does not create a proposal or change AWS resources. Process-level evidence requires a separately provisioned fixed SSM document; a calculated error rate and live AWS validation remain outstanding.
 
 ## Phase 3: Human approval, controlled execution, verification
 
@@ -83,6 +91,7 @@ For this demonstration, keep any independent automatic scaling policies from com
 - [ ] Compare fresh before/after CPU, request volume, latency, errors and target health while Locust remains running. Report improved, not improved, or verification incomplete; never declare success just because desired capacity changed.
 - [ ] Define cleanup separately: after the demo, an authorized operator reviews whether returning desired capacity to 1 is safe. Scale-in may terminate an instance; it is not an automatic rollback.
 - [ ] Test the complete approval/executor lifecycle with fake AWS clients, including denial, expiry, races, duplicate approval, conflicts, launch failure, unhealthy targets, timeout, and partial or inconclusive results.
+- [ ] Add an on-premises rate-limit approval proposal and a separately scoped executor that enables only a prepared limiter after approval; verify health and request rejection/delay and support operator-reviewed rollback.
 
 **Completion:** An approved simulated proposal changes the fake group once and produces an evidence-based result; rejected or unsafe proposals cannot change it.
 
@@ -97,6 +106,14 @@ For this demonstration, keep any independent automatic scaling policies from com
 - [ ] Run Locust separately and measure a controlled baseline and ramp. Record CPU credit mode/balance for burstable instances and agree thresholds and a stop condition.
 
 **Completion:** One healthy application instance serves load through the ALB; metrics show a controlled increase, and the launch template can produce a second healthy instance.
+
+## On-premises development and test track
+
+- [x] Add a trusted on-prem target scope, fixed-command SSH evidence adapter, environment-specific LangChain tools, and a candidate policy. The incident and model cannot supply commands or select an unconfigured server.
+- [ ] Implement, review and provision the on-host read-only diagnostic executable and its metrics sources; configure a restricted SSH identity and verified host key. Its versioned output contract is documented in `infrastructure_fix/README.md`.
+- [ ] Implement a prepared endpoint-specific limiter in the selected on-prem test environment, and expose its state through the diagnostic contract.
+- [ ] Add the approved rate-limit executor, review/rollback workflow, and verification of CPU, latency, health and HTTP 429/delayed requests while Locust continues.
+- [ ] Validate the end-to-end path against a designated on-prem test host. Never infer that a diagnostic adapter is operational from fake-client tests.
 
 ## Phase 5: Connect a real New Relic alert
 
@@ -138,4 +155,4 @@ For this demonstration, keep any independent automatic scaling policies from com
 
 ## Immediate next action
 
-Begin Phase 2 with verified-target and evidence models and a read-only target resolver tested against fake AWS clients. Keep Phase 1's infrastructure agent non-executing until its investigation is implemented. The separate `ams-incident-agent` and `applications` repositories support the log-error flow and are not required for this direct performance-alert demonstration.
+Complete investigation coverage and validate the AWS integration in the designated test environment, then build the approval proposal and separate executor. The separate `ams-incident-agent` and `applications` repositories support the log-error flow and are not required for this direct performance-alert demonstration.

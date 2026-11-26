@@ -50,13 +50,11 @@ def _run_graph(domain):
     return result, fake_db
 
 
-def test_infrastructure_diagnosis_reaches_placeholder_with_target_hint():
+def test_infrastructure_diagnosis_stops_when_investigation_disabled():
     result, fake_db = _run_graph("Infrastructure")
     assert result["l2_rca_result"]["status"] == "completed"
     assert result["l2_rca_result"]["data"]["execution"]["status"] == "DEFERRED_TO_WORKFLOW"
-    assert result["fix_agent_result"]["status"] == "INVESTIGATION_NOT_IMPLEMENTED"
-    assert result["fix_agent_result"]["target_hint"] == "i-0123456789abcdef0"
-    assert result["fix_agent_result"]["environment"] == "performance-simulation"
+    assert result["fix_agent_result"]["status"] == "INVESTIGATION_DISABLED"
     fake_db.assert_not_called()
 
 

@@ -744,6 +744,7 @@ def build_intake_categorisation_workflow():
                         description=_compact_text(event.description, event.raw_description, event.message),
                         target_hint=event.configuration_item,
                         environment=event.impacted_environment or event.environment,
+                        session_id=state.get("workflow_session_id", ""),
                     )
                 else:
                     fix_request = DBFixRequest(**rca_dict)
